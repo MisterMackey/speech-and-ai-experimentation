@@ -7,6 +7,8 @@ Project("{FAE04EC0-301F-11D3-BF4B-00C04F79EFBC}") = "Speech", "Speech\Speech.csp
 EndProject
 Project("{FAE04EC0-301F-11D3-BF4B-00C04F79EFBC}") = "Program", "Program\Program.csproj", "{E375F2EC-55C3-49AF-BF6E-E77626A0373B}"
 EndProject
+Project("{FAE04EC0-301F-11D3-BF4B-00C04F79EFBC}") = "OpenAiExperimentation", "OpenAiExperimentation\OpenAiExperimentation.csproj", "{3C1112E7-0B97-437D-B04E-68A7FC118547}"
+EndProject
 Global
 	GlobalSection(SolutionConfigurationPlatforms) = preSolution
 		Debug|Any CPU = Debug|Any CPU
@@ -24,5 +26,9 @@ Global
 		{E375F2EC-55C3-49AF-BF6E-E77626A0373B}.Debug|Any CPU.Build.0 = Debug|Any CPU
 		{E375F2EC-55C3-49AF-BF6E-E77626A0373B}.Release|Any CPU.ActiveCfg = Release|Any CPU
 		{E375F2EC-55C3-49AF-BF6E-E77626A0373B}.Release|Any CPU.Build.0 = Release|Any CPU
+		{3C1112E7-0B97-437D-B04E-68A7FC118547}.Debug|Any CPU.ActiveCfg = Debug|Any CPU
+		{3C1112E7-0B97-437D-B04E-68A7FC118547}.Debug|Any CPU.Build.0 = Debug|Any CPU
+		{3C1112E7-0B97-437D-B04E-68A7FC118547}.Release|Any CPU.ActiveCfg = Release|Any CPU
+		{3C1112E7-0B97-437D-B04E-68A7FC118547}.Release|Any CPU.Build.0 = Release|Any CPU
 	EndGlobalSection
 EndGlobal

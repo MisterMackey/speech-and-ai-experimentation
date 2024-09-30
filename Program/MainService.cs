@@ -2,6 +2,7 @@ using System;
 using Microsoft.Extensions.Hosting;
 using Microsoft.Extensions.Logging;
 using Speech;
+using OpenAiExperimentation;
 
 namespace Program;
 
@@ -10,11 +11,13 @@ public class MainService : IHostedService
 	private readonly CancellationTokenSource cts = new CancellationTokenSource();
 	private readonly ILogger<MainService> logger;
 	private readonly SpeechToTextConverter converter;
+	private readonly Summarizer summarizer;
 
-	public MainService(ILogger<MainService> logger, SpeechToTextConverter speechToTextConverter)
+	public MainService(ILogger<MainService> logger, SpeechToTextConverter speechToTextConverter, Summarizer summarizer)
 	{
 		this.logger = logger;
 		this.converter = speechToTextConverter;
+		this.summarizer = summarizer;
 	}
 
 	public Task StartAsync(CancellationToken cancellationToken)
@@ -52,6 +55,8 @@ public class MainService : IHostedService
 			logger.LogInformation("Type 'record' [Enter] to start recording.");
 			logger.LogInformation("Type 'translate' [Enter] to translate english-russian.");
 			logger.LogInformation("Type 'speak' [Enter] to translate english-russian and talk.");
+			logger.LogInformation("Type 'summarize text' [Enter] to summarize text (written).");
+			logger.LogInformation("Type 'summarize speech' [Enter] to summarize some text (spoken).");
 			logger.LogInformation("Ctrl-C to quit application.");
 			var command = Console.ReadLine();
 			switch (command)
@@ -65,11 +70,69 @@ public class MainService : IHostedService
 				case "speak":
 					doSpeak();
 					break;
+				case "summarize text":
+					doSummarizeText();
+					break;
+				case "summarize speech":
+					doSummarizeSpeech();
+					break;
 				default:
 					logger.LogInformation("Unknown command.");
 					break;
 			}
 		}
+	}
+
+	private void doSummarizeSpeech()
+	{
+		var result = converter.CaptureAndConvertAudioToText(cts.Token).Result;
+		var summary = result.Map(text => {
+			logger.LogInformation($"Text to summarize: {text}");
+			if (string.IsNullOrEmpty(text))
+			{
+				logger.LogInformation("No text to summarize.");
+				return "";
+			}
+			var summary = summarizer.SummarizeText(text, cts.Token).Result;
+			return summary;
+		});
+		Console.WriteLine(summary.Match(
+			Succ: summary =>
+			{
+				Console.WriteLine($"Summary: {summary}");
+				return summary;
+			},
+			Fail: ex =>
+			{
+				Console.WriteLine($"Error: {ex.Message}");
+				return "Error";
+			}
+		));
+	}
+
+	private void doSummarizeText()
+	{
+		logger.LogInformation("Type the text to summarize:");
+		var text = Console.ReadLine();
+		logger.LogInformation($"Text to summarize: {text}");
+		if (string.IsNullOrEmpty(text))
+		{
+			logger.LogInformation("No text to summarize.");
+			return;
+		}
+		var result = summarizer.SummarizeText(text, cts.Token).Result;
+		Console.WriteLine(result.Match(
+			Succ: summary =>
+			{
+				Console.WriteLine($"Summary: {summary}");
+				return summary;
+			},
+			Fail: ex =>
+			{
+				Console.WriteLine($"Error: {ex.Message}");
+				return "Error";
+			}
+		));
 	}
 
 	private void doRecord()
