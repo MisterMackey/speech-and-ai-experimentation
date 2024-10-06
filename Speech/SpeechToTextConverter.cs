@@ -1,6 +1,7 @@
 ﻿using System;
 using System.IO;
 using System.Threading.Tasks;
+using LanguageExt;
 using LanguageExt.Common;
 using Microsoft.CognitiveServices.Speech;
 using Microsoft.CognitiveServices.Speech.Audio;
@@ -21,6 +22,8 @@ public class SpeechToTextConverter : IDisposable
 	private readonly string? region;
 	private volatile bool ready;
 	private bool disposedValue;
+	private volatile bool translating;
+	private TaskCompletionSource<int>? stopRecognition;
 
 	public SpeechToTextConverter(ILogger<SpeechToTextConverter> logger)
 	{
@@ -124,7 +127,7 @@ public class SpeechToTextConverter : IDisposable
 		}
 	}
 
-	public async Task<Result<byte[]>> ConvertTextToAudioOutputRussian(CancellationToken cancellationToken, string text)
+	public async Task<Result<byte[]>> ConvertTextToAudioOutput(CancellationToken cancellationToken, string text, string lang = "ru-RU", string voice = "ru-RU-DariyaNeural")
 	{
 		if (!ready)
 		{
@@ -132,8 +135,8 @@ public class SpeechToTextConverter : IDisposable
 		}
 		ready = false;
 		var speechConfig = SpeechConfig.FromSubscription(key, region);
-		speechConfig.SpeechSynthesisLanguage = "ru-RU";
-		speechConfig.SpeechSynthesisVoiceName = "ru-RU-DariyaNeural";
+		speechConfig.SpeechSynthesisLanguage = lang;
+		speechConfig.SpeechSynthesisVoiceName = voice;
 
 		using var audioConfig = AudioConfig.FromDefaultSpeakerOutput();
 		using var speechSynthesizer = new SpeechSynthesizer(speechConfig, audioConfig);
@@ -159,9 +162,84 @@ public class SpeechToTextConverter : IDisposable
 				return new Result<byte[]>(result.AudioData);
 			case ResultReason.Canceled:
 				var cancellation = SpeechSynthesisCancellationDetails.FromResult(result);
-				return new Result<byte[]>(new Exception($"CANCELED: Reason={cancellation.Reason}"));
+				return new Result<byte[]>(new Exception($"CANCELED: Reason={cancellation.Reason}, Details: {cancellation.ErrorDetails}"));
 			default:
 				return new Result<byte[]>(new Exception($"Unknown error. Reason={result.Reason}"));
+		}
+	}
+
+	public async Task<Result<int>> ContinuousTranslation(CancellationToken cancellationToken, string lang, string voice, string source = "en-us")
+	{
+		if (translating)
+		{
+			return new Result<int>(new Exception("Speech to text converter is not ready."));
+		}
+		translating = true;
+		using var audioConfig = AudioConfig.FromDefaultMicrophoneInput();
+		var speechConfig = SpeechTranslationConfig.FromSubscription(key, region);
+		speechConfig.SpeechRecognitionLanguage = source;
+		var targetLang = lang.Split("-").First();
+		speechConfig.AddTargetLanguage(targetLang);
+
+		// not rly danger zone but i seem to talk too fast for the default 500 ms
+		//speechConfig.SetProperty(PropertyId.Speech_SegmentationSilenceTimeoutMs, "300");
+
+		using var recognizer = new TranslationRecognizer(speechConfig, audioConfig);
+
+		stopRecognition = new TaskCompletionSource<int>();
+		recognizer.Recognizing += (s, e) =>
+		{
+			logger.LogInformation($"TRANSLATING: {e.Result.Text} -> {e.Result.Translations[targetLang]}");
+		};
+		recognizer.Recognized += (s, e) =>
+		{
+			if (e.Result.Reason == ResultReason.TranslatedSpeech)
+			{
+				logger.LogInformation($"TRANSLATED: {e.Result.Text} -> {e.Result.Translations[targetLang]}");
+				_ = Task.Run(() => ConvertTextToAudioOutput(cancellationToken, e.Result.Translations[targetLang], lang, voice));
+			}
+			else if (e.Result.Reason == ResultReason.NoMatch)
+			{
+				logger.LogInformation($"NOMATCH: Speech could not be recognized.");
+			}
+		};
+		recognizer.Canceled += (s, e) =>
+		{
+			logger.LogInformation($"CANCELED: Reason={e.Reason}");
+			if (e.Reason == CancellationReason.Error)
+			{
+				logger.LogWarning($"CANCELED: ErrorCode={e.ErrorCode}");
+				logger.LogWarning($"CANCELED: ErrorDetails={e.ErrorDetails}");
+				logger.LogWarning($"CANCELED: Did you update the subscription info?");
+			}
+			stopRecognition.TrySetResult(0);
+		};
+		recognizer.SessionStopped += (s, e) =>
+		{
+			logger.LogInformation("\n    Session stopped event.");
+			stopRecognition.TrySetResult(0);
+		};
+		await recognizer.StartContinuousRecognitionAsync();
+		while (!cancellationToken.IsCancellationRequested)
+		{
+			if (stopRecognition.Task.IsCompleted)
+			{
+				break;
+			}
+			await Task.Delay(100);
+		}
+		int result = await stopRecognition.Task;
+		logger.LogInformation("Stopping continuous recognition...");
+		await recognizer.StopContinuousRecognitionAsync();
+		translating = false;
+		return result;
+	}
+
+	public void StopContinuousTranslation()
+	{
+		if (translating && stopRecognition is not null)
+		{
+			stopRecognition.TrySetResult(0);
 		}
 	}
 
